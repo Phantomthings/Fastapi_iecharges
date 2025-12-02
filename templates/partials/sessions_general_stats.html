@@ -1,0 +1,206 @@
+<div class="kpi-wrapper">
+    <style>
+        .kpi-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 8px 0; }
+        .kpi-card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; padding: 14px 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.03); }
+        .kpi-title { font-size: 0.9rem; color: var(--color-text-muted); margin-bottom: 6px; display:flex; align-items:center; gap:6px; }
+        .kpi-value { font-size: 1.6rem; font-weight: 700; color: var(--color-text); }
+        .kpi-sub { font-size: 0.85rem; color: var(--color-text-muted); margin-top: 4px; }
+        .tag { display:inline-block; padding:2px 8px; border-radius:999px; font-size:0.75rem; background:#eef2ff; color:#4f46e5; border:1px solid #c7d2fe; }
+        .section-title { font-weight:700; margin:14px 0 8px; color:var(--color-text); display:flex; align-items:center; gap:8px; }
+        .table-wrapper { overflow:auto; border:1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); }
+        table.simple-table { width:100%; border-collapse:collapse; min-width:420px; }
+        table.simple-table th, table.simple-table td { padding:0.55rem 0.65rem; border-bottom:1px solid var(--color-border); font-size:0.9rem; text-align:left; }
+        table.simple-table th { background:#f8fafc; color:var(--color-text-muted); position:sticky; top:0; }
+        .empty { padding:1rem; color:var(--color-text-muted); font-style:italic; }
+    </style>
+
+    <div class="section-title">⚡ Énergie <span class="tag">Total tous statuts</span> <span class="tag">Moy./Max OK only</span></div>
+    <div class="kpi-grid">
+        <div class="kpi-card">
+            <div class="kpi-title">Total (kWh)</div>
+            <div class="kpi-value">{{ energy.total_all }}</div>
+            <div class="kpi-sub">Tous statuts</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-title">Moyenne (kWh)</div>
+            <div class="kpi-value">{{ energy.mean }}</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-title">Max (kWh)</div>
+            <div class="kpi-value">{{ energy.max }}</div>
+            <div class="kpi-sub">{{ energy.max_info }}</div>
+        </div>
+    </div>
+
+    <div class="section-title">🔌 Puissance moyenne (kW) <span class="tag">OK only</span></div>
+    <div class="kpi-grid">
+        <div class="kpi-card">
+            <div class="kpi-title">Moyenne</div>
+            <div class="kpi-value">{{ power_mean.mean }}</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-title">Max</div>
+            <div class="kpi-value">{{ power_mean.max }}</div>
+            <div class="kpi-sub">{{ power_mean.max_info }}</div>
+        </div>
+    </div>
+
+    <div class="section-title">🚀 Puissance maximale (kW) <span class="tag">OK only</span></div>
+    <div class="kpi-grid">
+        <div class="kpi-card">
+            <div class="kpi-title">Moyenne</div>
+            <div class="kpi-value">{{ power_max.mean }}</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-title">Max</div>
+            <div class="kpi-value">{{ power_max.max }}</div>
+            <div class="kpi-sub">{{ power_max.max_info }}</div>
+        </div>
+    </div>
+
+    <div class="section-title">🔋 SOC <span class="tag">OK only</span></div>
+    <div class="kpi-grid">
+        <div class="kpi-card">
+            <div class="kpi-title">SOC début moyen (%)</div>
+            <div class="kpi-value">{{ soc.start }}</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-title">SOC fin moyen (%)</div>
+            <div class="kpi-value">{{ soc.end }}</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-title">SOC moyen de recharge (%)</div>
+            <div class="kpi-value">{{ soc.gain }}</div>
+        </div>
+    </div>
+
+    <div class="section-title">⚡ Charges 900V</div>
+    <div class="kpi-grid">
+        <div class="kpi-card">
+            <div class="kpi-title">Total charges</div>
+            <div class="kpi-value">{{ charges_900.total }}</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-title">Total charges 900V</div>
+            <div class="kpi-value">{{ charges_900.total_900 }}</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-title">% en 900V</div>
+            <div class="kpi-value">{{ charges_900.pct }}%</div>
+        </div>
+    </div>
+
+    <div class="section-title">⏱️ Durées de charge (min) <span class="tag">OK only</span></div>
+    <div class="kpi-grid">
+        <div class="kpi-card">
+            <div class="kpi-title">Moyenne</div>
+            <div class="kpi-value">{{ duration.mean }}</div>
+        </div>
+    </div>
+
+    <div class="section-title">📅 Charges par jour <span class="tag">OK only</span></div>
+    {% if daily %}
+    <div class="kpi-grid">
+        <div class="kpi-card">
+            <div class="kpi-title">Jours couverts</div>
+            <div class="kpi-value">{{ daily.nb_days }}</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-title">Moyenne / jour (OK)</div>
+            <div class="kpi-value">{{ daily.mean_day }}</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-title">Médiane / jour (OK)</div>
+            <div class="kpi-value">{{ daily.med_day }}</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-title">Max / jour (OK)</div>
+            <div class="kpi-value">{{ daily.max_nb }}</div>
+            <div class="kpi-sub">{{ daily.max_date }}</div>
+        </div>
+    </div>
+    <div class="table-wrapper" style="margin-top:8px;">
+        <table class="simple-table">
+            <thead>
+                <tr><th>Jour</th><th>Nb charges OK</th></tr>
+            </thead>
+            <tbody>
+                {% for row in daily.rows %}
+                <tr>
+                    <td>{{ row.day_str }}</td>
+                    <td>{{ row.Nb }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty">Aucune charge OK sur la période (après filtres).</div>
+    {% endif %}
+
+    <div class="section-title">Taux de réussite/échec par type de véhicule</div>
+    {% if vehicle_rows %}
+    <div class="table-wrapper">
+        <table class="simple-table">
+            <thead>
+                <tr>
+                    <th>Véhicule</th><th>Total</th><th>OK</th><th>NOK</th><th>% Réussite</th><th>% Échec</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in vehicle_rows %}
+                <tr>
+                    <td>{{ row.Vehicle }}</td>
+                    <td>{{ row.total }}</td>
+                    <td>{{ row.ok }}</td>
+                    <td>{{ row.nok }}</td>
+                    <td>{{ row.success }}%</td>
+                    <td>{{ row.failure }}%</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty">Aucune donnée véhicule exploitable sur ce périmètre.</div>
+    {% endif %}
+
+    <div class="section-title">⏱️ Durée de fonctionnement totale (heures) — par site</div>
+    {% if duration_site_rows %}
+    <div class="table-wrapper">
+        <table class="simple-table">
+            <thead><tr><th>Site</th><th>Heures</th></tr></thead>
+            <tbody>
+                {% for row in duration_site_rows %}
+                <tr>
+                    <td>{{ row.Site }}</td>
+                    <td>{{ row.Heures }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty">Tables de durée indisponibles sur ce périmètre.</div>
+    {% endif %}
+
+    <div class="section-title">⏱️ Durée de fonctionnement totale (heures) — par PDC</div>
+    {% if duration_pdc_rows %}
+    <div class="table-wrapper">
+        <table class="simple-table">
+            <thead><tr><th>Site</th><th>PDC</th><th>Heures</th></tr></thead>
+            <tbody>
+                {% for row in duration_pdc_rows %}
+                <tr>
+                    <td>{{ row.Site }}</td>
+                    <td>{{ row.PDC }}</td>
+                    <td>{{ row.Heures }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty">Aucun cumul de durée par PDC sur ce périmètre.</div>
+    {% endif %}
+</div>

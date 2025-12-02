@@ -591,6 +591,277 @@ async def get_sessions_comparaison(
         }
     )
 
+
+def _format_datetime(value: pd.Timestamp | None) -> str:
+    if pd.isna(value):
+        return "—"
+    return value.strftime("%Y-%m-%d %H:%M:%S")
+
+
+@router.get("/sessions/general-stats")
+async def get_sessions_general_stats(
+    request: Request,
+    sites: str = Query(default=""),
+    date_debut: date = Query(default=None),
+    date_fin: date = Query(default=None),
+):
+    """Statistiques générales inspirées de l'ancien onglet Streamlit."""
+
+    where_clause, params = _build_conditions(sites, date_debut, date_fin)
+
+    sql = f"""
+        SELECT
+            Site,
+            PDC,
+            `Datetime start` as dt_start,
+            `Datetime end` as dt_end,
+            `Energy (Kwh)` as energy_kwh,
+            `Mean Power (Kw)` as mean_kw,
+            `Max Power (Kw)` as max_kw,
+            `SOC Start` as soc_start,
+            `SOC End` as soc_end,
+            charge_900V,
+            Vehicle,
+            moment,
+            `State of charge(0:good, 1:error)` as state
+        FROM kpi_sessions
+        WHERE {where_clause}
+    """
+
+    df = query_df(sql, params)
+
+    if df.empty:
+        return templates.TemplateResponse(
+            "partials/sessions_general_stats.html",
+            {
+                "request": request,
+                "energy": {"total_all": 0, "mean": 0, "max": "—", "max_info": "—"},
+                "power_mean": {"mean": 0, "max": "—", "max_info": "—"},
+                "power_max": {"mean": 0, "max": "—", "max_info": "—"},
+                "soc": {"start": 0, "end": 0, "gain": "—"},
+                "charges_900": {"total": 0, "total_900": 0, "pct": 0.0},
+                "duration": {"mean": 0},
+                "daily": None,
+                "vehicle_rows": [],
+                "duration_site_rows": [],
+                "duration_pdc_rows": [],
+            },
+        )
+
+    df["is_ok"] = pd.to_numeric(df.get("state"), errors="coerce").fillna(1).astype(int).eq(0)
+    ok_mask = df["is_ok"]
+    nok_mask = ~ok_mask
+
+    # Normalise moment
+    moment_col = df.get("moment", pd.Series(index=df.index, dtype="object"))
+    moment_norm = moment_col.astype(str).str.strip().str.casefold()
+
+    # Datetime parsing
+    dt_start = pd.to_datetime(df.get("dt_start"), errors="coerce")
+    dt_end = pd.to_datetime(df.get("dt_end"), errors="coerce")
+
+    def _make_date_lieu(df_src: pd.DataFrame):
+        def _date_of(idx):
+            if idx not in df_src.index:
+                return "—"
+            end_val = dt_end.loc[idx] if idx in dt_end.index else pd.NaT
+            start_val = dt_start.loc[idx] if idx in dt_start.index else pd.NaT
+            chosen = end_val if pd.notna(end_val) else start_val
+            return _format_datetime(chosen)
+
+        def _lieu_of(idx):
+            if idx not in df_src.index:
+                return "—"
+            row = df_src.loc[idx]
+            site = str(row.get("Site", "")) or "—"
+            pdc = str(row.get("PDC", "")) or "—"
+            return f"{site} — PDC {pdc}"
+
+        return _date_of, _lieu_of
+
+    # ------------------------------------------------------------------
+    # Énergie
+    # ------------------------------------------------------------------
+    energy_all_series = pd.to_numeric(df.get("energy_kwh"), errors="coerce")
+    total_all = round(float(energy_all_series.sum(skipna=True)), 3) if energy_all_series.notna().any() else 0
+
+    fin_mask = moment_norm.eq("fin de charge")
+    energy_mask = ok_mask | (nok_mask & fin_mask)
+    energy_df = df.loc[energy_mask].copy()
+    energy_series = pd.to_numeric(energy_df.get("energy_kwh"), errors="coerce")
+
+    energy_mean = round(float(energy_series.mean(skipna=True)), 3) if energy_series.notna().any() else 0
+    energy_max_idx = energy_series.idxmax() if energy_series.notna().any() else None
+    if energy_max_idx is not None and energy_max_idx in energy_df.index:
+        energy_max_val = round(float(energy_series.loc[energy_max_idx]), 3)
+        energy_date_of, energy_lieu_of = _make_date_lieu(energy_df)
+        energy_info = f"{energy_date_of(energy_max_idx)} — {energy_lieu_of(energy_max_idx)}"
+    else:
+        energy_max_val = "—"
+        energy_info = "—"
+
+    # ------------------------------------------------------------------
+    # Filtre OK + fin de charge pour les autres indicateurs
+    # ------------------------------------------------------------------
+    ok_fin_df = df.loc[ok_mask].copy()
+    if not ok_fin_df.empty:
+        ok_fin_df = ok_fin_df.loc[moment_norm[ok_mask].eq("fin de charge")]
+
+    dt_start_ok = dt_start.loc[ok_fin_df.index]
+    dt_end_ok = dt_end.loc[ok_fin_df.index]
+    date_of, lieu_of = _make_date_lieu(ok_fin_df)
+
+    # ------------------------------------------------------------------
+    # Puissance moyenne
+    # ------------------------------------------------------------------
+    mean_kw_series = pd.to_numeric(ok_fin_df.get("mean_kw"), errors="coerce")
+    mean_kw_mean = round(float(mean_kw_series.mean(skipna=True)), 3) if mean_kw_series.notna().any() else 0
+    mean_kw_idx = mean_kw_series.idxmax() if mean_kw_series.notna().any() else None
+    if mean_kw_idx is not None and mean_kw_idx in ok_fin_df.index:
+        mean_kw_max = round(float(mean_kw_series.loc[mean_kw_idx]), 3)
+        mean_kw_info = f"{date_of(mean_kw_idx)} — {lieu_of(mean_kw_idx)}"
+    else:
+        mean_kw_max = "—"
+        mean_kw_info = "—"
+
+    # ------------------------------------------------------------------
+    # Puissance maximale
+    # ------------------------------------------------------------------
+    max_kw_series = pd.to_numeric(ok_fin_df.get("max_kw"), errors="coerce")
+    max_kw_mean = round(float(max_kw_series.mean(skipna=True)), 3) if max_kw_series.notna().any() else 0
+    max_kw_idx = max_kw_series.idxmax() if max_kw_series.notna().any() else None
+    if max_kw_idx is not None and max_kw_idx in ok_fin_df.index:
+        max_kw_max = round(float(max_kw_series.loc[max_kw_idx]), 3)
+        max_kw_info = f"{date_of(max_kw_idx)} — {lieu_of(max_kw_idx)}"
+    else:
+        max_kw_max = "—"
+        max_kw_info = "—"
+
+    # ------------------------------------------------------------------
+    # SOC
+    # ------------------------------------------------------------------
+    soc_start = pd.to_numeric(ok_fin_df.get("soc_start"), errors="coerce")
+    soc_end = pd.to_numeric(ok_fin_df.get("soc_end"), errors="coerce")
+    soc_start_mean = round(float(soc_start.mean(skipna=True)), 2) if soc_start.notna().any() else 0
+    soc_end_mean = round(float(soc_end.mean(skipna=True)), 2) if soc_end.notna().any() else 0
+    soc_gain_mean = (
+        round(float((soc_end - soc_start).mean(skipna=True)), 2)
+        if soc_start.notna().any() and soc_end.notna().any()
+        else "—"
+    )
+
+    # ------------------------------------------------------------------
+    # Charges 900V
+    # ------------------------------------------------------------------
+    c900 = pd.to_numeric(df.get("charge_900V"), errors="coerce").fillna(0).astype(int)
+    total_900 = int(c900.sum())
+    total_all = len(df)
+    pct_900 = round(total_900 / total_all * 100, 2) if total_all > 0 else 0.0
+
+    # ------------------------------------------------------------------
+    # Durées
+    # ------------------------------------------------------------------
+    dur_min = (dt_end_ok - dt_start_ok).dt.total_seconds() / 60
+    dur_mean = round(float(dur_min.mean(skipna=True)), 1) if dur_min.notna().any() else 0
+
+    # ------------------------------------------------------------------
+    # Charges par jour (OK)
+    # ------------------------------------------------------------------
+    daily_context = None
+    if not ok_fin_df.empty:
+        ok_fin_df = ok_fin_df.assign(day=dt_start_ok.dt.floor("D"))
+        daily_tot = (
+            ok_fin_df.dropna(subset=["day"])
+            .groupby("day")
+            .size()
+            .reset_index(name="Nb")
+            .sort_values("day")
+        )
+        if not daily_tot.empty:
+            nb_days = int(daily_tot["day"].nunique())
+            mean_day = round(float(daily_tot["Nb"].mean()), 2)
+            med_day = round(float(daily_tot["Nb"].median()), 2)
+            max_row = daily_tot.loc[daily_tot["Nb"].idxmax()]
+            daily_context = {
+                "nb_days": nb_days,
+                "mean_day": mean_day,
+                "med_day": med_day,
+                "max_nb": int(max_row["Nb"]),
+                "max_date": _format_datetime(max_row["day"]),
+                "rows": daily_tot.assign(day_str=daily_tot["day"].dt.strftime("%Y-%m-%d")).to_dict("records"),
+            }
+
+    # ------------------------------------------------------------------
+    # Taux de réussite par véhicule
+    # ------------------------------------------------------------------
+    vehicle_rows = []
+    if "Vehicle" in df.columns:
+        vehicles = df.get("Vehicle").astype(str).str.strip()
+        vehicles = vehicles.replace({"": np.nan, "nan": np.nan, "None": np.nan, "none": np.nan})
+        df["Vehicle"] = vehicles.fillna("Unknown")
+        df_vehicle = df[df["Vehicle"] != "Unknown"].copy()
+        if not df_vehicle.empty:
+            grouped = (
+                df_vehicle.groupby("Vehicle")["is_ok"]
+                .agg(total="size", ok="sum")
+                .reset_index()
+            )
+            grouped["nok"] = grouped["total"] - grouped["ok"]
+            grouped["success"] = np.where(
+                grouped["total"].gt(0), (grouped["ok"] / grouped["total"] * 100).round(2), 0.0
+            )
+            grouped["failure"] = 100 - grouped["success"]
+            vehicle_rows = grouped.sort_values(["total", "success"], ascending=[False, False]).to_dict("records")
+
+    # ------------------------------------------------------------------
+    # Durée totale par site / PDC
+    # ------------------------------------------------------------------
+    duration_site_rows = []
+    duration_pdc_rows = []
+    if not ok_fin_df.empty:
+        duration_df = ok_fin_df.assign(dur_min=dur_min)
+        by_site = (
+            duration_df.groupby("Site", dropna=False)["dur_min"]
+            .sum()
+            .reset_index()
+            .assign(Heures=lambda d: (d["dur_min"] / 60).round(1))
+            [["Site", "Heures"]]
+            .sort_values("Heures", ascending=False)
+        )
+        duration_site_rows = by_site.to_dict("records")
+
+        by_pdc = (
+            duration_df.groupby(["Site", "PDC"], dropna=False)["dur_min"]
+            .sum()
+            .reset_index()
+            .assign(Heures=lambda d: (d["dur_min"] / 60).round(1))
+            [["Site", "PDC", "Heures"]]
+            .sort_values(["Site", "Heures"], ascending=[True, False])
+        )
+        duration_pdc_rows = by_pdc.to_dict("records")
+
+    return templates.TemplateResponse(
+        "partials/sessions_general_stats.html",
+        {
+            "request": request,
+            "energy": {
+                "total_all": total_all,
+                "mean": energy_mean,
+                "max": energy_max_val,
+                "max_info": energy_info,
+            },
+            "power_mean": {"mean": mean_kw_mean, "max": mean_kw_max, "max_info": mean_kw_info},
+            "power_max": {"mean": max_kw_mean, "max": max_kw_max, "max_info": max_kw_info},
+            "soc": {"start": soc_start_mean, "end": soc_end_mean, "gain": soc_gain_mean},
+            "charges_900": {"total": total_all, "total_900": total_900, "pct": pct_900},
+            "duration": {"mean": dur_mean},
+            "daily": daily_context,
+            "vehicle_rows": vehicle_rows,
+            "duration_site_rows": duration_site_rows,
+            "duration_pdc_rows": duration_pdc_rows,
+        },
+    )
+
     return templates.TemplateResponse("partials/sessions_comparaison.html", context)
 
 
