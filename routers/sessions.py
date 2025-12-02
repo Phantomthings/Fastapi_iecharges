@@ -808,7 +808,8 @@ async def get_sessions_site_details(
                     .reset_index()
                 )
 
-                table["Total"] = table[downstream_moments].sum(axis=1)
+                table[downstream_moments] = table[downstream_moments].astype(int)
+                table["Total"] = table[downstream_moments].sum(axis=1).astype(int)
                 table = table.sort_values("Total", ascending=False).reset_index(drop=True)
 
                 total_all = int(table["Total"].sum())
@@ -853,7 +854,8 @@ async def get_sessions_site_details(
                     .reset_index()
                 )
 
-                table["Total"] = table[evi_occ_moments].sum(axis=1)
+                table[evi_occ_moments] = table[evi_occ_moments].astype(int)
+                table["Total"] = table[evi_occ_moments].sum(axis=1).astype(int)
                 table = table.sort_values("Total", ascending=False).reset_index(drop=True)
 
                 total_all = int(table["Total"].sum())
