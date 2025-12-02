@@ -854,7 +854,9 @@ async def get_sessions_site_details(
                     .reset_index()
                 )
 
-                table[evi_occ_moments] = table[evi_occ_moments].astype(int)
+                # Fill potential missing occurrences before casting to int to avoid
+                # pandas IntCastingNaNError when moments are absent for an EVI code.
+                table[evi_occ_moments] = table[evi_occ_moments].fillna(0).astype(int)
                 table["Total"] = table[evi_occ_moments].sum(axis=1).astype(int)
                 table = table.sort_values("Total", ascending=False).reset_index(drop=True)
 
