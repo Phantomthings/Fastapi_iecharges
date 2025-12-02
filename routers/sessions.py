@@ -808,7 +808,9 @@ async def get_sessions_site_details(
                     .reset_index()
                 )
 
-                table[downstream_moments] = table[downstream_moments].astype(int)
+                # Fill potential missing occurrences before casting to int to avoid
+                # pandas IntCastingNaNError when moments are absent for a Code_PC.
+                table[downstream_moments] = table[downstream_moments].fillna(0).astype(int)
                 table["Total"] = table[downstream_moments].sum(axis=1).astype(int)
                 table = table.sort_values("Total", ascending=False).reset_index(drop=True)
 
